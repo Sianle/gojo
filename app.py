@@ -17,47 +17,48 @@ is_running = False
 send_status_list = []
 recent_target = ""
 
+# 이메일 형식 검증
 def is_valid_email(email):
     pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
     return re.match(pattern, email)
 
+# SMTP 로그인 확인
 def check_smtp_login(email, password):
-    """실제 SMTP 로그인으로 앱 비밀번호 검증"""
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
             server.starttls()
             server.login(email, password)
         return True
-    except smtplib.SMTPAuthenticationError:
-        return False
     except Exception:
         return False
 
-def send_email_loop(receiver_email, sender_email, sender_password):
+# 이메일 전송 루프
+def send_email_loop(receiver_email, accounts_with_pw):
     global is_running, send_status_list, recent_target
     count = 0
     recent_target = receiver_email
     try:
         while is_running:
-            try:
-                with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                    server.starttls()
-                    server.login(sender_email, sender_password)
-
-                    count += 1
-                    msg = MIMEText(f"미안하다,아마나이.난지금널위해화를내는게아니야.나는아무도미워하지않아.지금은그저한없이이세계가유쾌하다. [...] {count}")
-                    msg['From'] = sender_email
-                    msg['To'] = receiver_email
-                    msg['Subject'] = f"영역전개: 무량공처\n{count}"
-                    server.sendmail(sender_email, receiver_email, msg.as_string())
-                send_status_list.append(f"{sender_email}: 전송 성공 ({count})")
-            except Exception as e:
-                send_status_list.append(f"{sender_email}: 전송 실패 ({e})")
-            time.sleep(0.2)
+            for email, password in accounts_with_pw:
+                try:
+                    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                        server.starttls()
+                        server.login(email, password)
+                        count += 1
+                        msg = MIMEText(f"미안하다, 아마나이. 난 지금 널 위해 화를 내는게 아니야. 나는 아무도 미워하지 않아. 지금은 그저 한없이 이 세계가 유쾌하다. [천상천하, 유아독존!] 대대로 전해 내려오는 전수 술식의 이점은 선대가 미리 구축해놓은 술식의 취급설명서가 있다는 것. 단점은 술식의 정보가 쉽게 새어나간다는 것. 당신, 젠인 가의 사람이지? 그러니 '창'과 '혁' 그리고 무하한 주술에 대한 것도 잘 아는 거겠지. 하지만 이건, 고죠 가문 안에사도 극히 일부의 인간만 아는 것이다. 순전과 반전. 각각의 무한을 충돌시킴으로써 생성되고, 가상의 질량을 밀어내는 허식(虚式), 자(紫); 🫸🔵 🔴🫷 🫴🟣 [{count}]")
+                        msg['From'] = email
+                        msg['To'] = receiver_email
+                        msg['Subject'] = f"영역전개: 무량공처 [{count}]"
+                        server.sendmail(email, receiver_email, msg.as_string())
+                    send_status_list.append(f"{email}: 전송 성공 ({count})")
+                except Exception as e:
+                    send_status_list.append(f"{email}: 전송 실패 ({e})")
+                time.sleep(0.2)
     finally:
         is_running = False
 
-html = '''
+# HTML UI
+html = ''' 
 <!DOCTYPE html>
 <html>
 <head>
@@ -82,7 +83,7 @@ li { font-size:13px; margin-bottom:3px; }
 
 {% if step == 'select_mode' %}
 <form method="POST">
-    <label><input type="radio" name="mode" value="guest" required> 게스트 사용 (하루500통 제한,다른 사람이 사용한 것도 포함.안되면 개인게정)</label><br>
+    <label><input type="radio" name="mode" value="guest" required> 게스트 사용 (하루500통 제한)</label><br>
     <label><input type="radio" name="mode" value="personal" required> 개인계정 사용</label><br><br>
     <button type="submit" name="action" value="select_mode">선택</button>
 </form>
@@ -90,9 +91,9 @@ li { font-size:13px; margin-bottom:3px; }
 {% elif step == 'personal_login' %}
 <form method="POST">
     <input type="email" name="email1" placeholder="계정1 이메일" required value="{{ request.form.get('email1','') }}">
-    <input type="password" name="pass1" placeholder="계정1 앱 비밀번호" required value="{{ request.form.get('pass1','') }}"><br>
+    <input type="password" name="pass1" placeholder="계정1 앱 비밀번호" required><br>
     <input type="email" name="email2" placeholder="계정2 이메일 (선택)" value="{{ request.form.get('email2','') }}">
-    <input type="password" name="pass2" placeholder="계정2 앱 비밀번호 (선택)" value="{{ request.form.get('pass2','') }}"><br>
+    <input type="password" name="pass2" placeholder="계정2 앱 비밀번호 (선택)"><br>
     <button type="submit" name="action" value="login_personal">로그인 및 시작</button>
 </form>
 {% if login_error %}
@@ -133,8 +134,8 @@ def index():
     login_error = ""
     step = 'select_mode'
 
-    accounts = session.get('accounts', [])
     mode = session.get('mode', None)
+    accounts = session.get('accounts', [])
 
     if request.method == 'POST':
         action = request.form['action']
@@ -143,49 +144,52 @@ def index():
             mode = request.form['mode']
             session['mode'] = mode
             if mode == 'guest':
+                # 게스트 계정은 미리 비밀번호 포함
                 session['accounts'] = list(zip(GUEST_EMAILS, GUEST_PASSWORDS))
                 step = 'email_sender'
-            elif mode == 'personal':
+            else:
                 step = 'personal_login'
 
         elif action == 'login_personal':
-            accounts = []
+            accounts_with_pw = []
             for i in [1,2]:
-                e = request.form.get(f'email{i}')
-                p = request.form.get(f'pass{i}')
-                if e and p:
-                    if not is_valid_email(e):
-                        login_error = f"{e} 이메일 형식 오류"
+                email = request.form.get(f'email{i}')
+                password = request.form.get(f'pass{i}')
+                if email and password:
+                    if not is_valid_email(email):
+                        login_error = f"{email} 이메일 형식 오류"
                         step = 'personal_login'
                         return render_template_string(html, step=step, login_error=login_error)
-                    if not check_smtp_login(e, p):
-                        login_error = f"{e} 로그인 실패: 앱 비밀번호 확인 필요"
+                    if not check_smtp_login(email, password):
+                        login_error = f"{email} 로그인 실패"
                         step = 'personal_login'
                         return render_template_string(html, step=step, login_error=login_error)
-                    accounts.append((e,p))
-                elif e or p:
-                    login_error = f"{e if e else '계정'+str(i)} 이메일과 앱 비밀번호 모두 입력 필요"
+                    accounts_with_pw.append((email, password))
+                elif email or password:
+                    login_error = f"{email if email else '계정'+str(i)} 이메일과 비밀번호 모두 입력 필요"
                     step = 'personal_login'
                     return render_template_string(html, step=step, login_error=login_error)
 
-            if not accounts:
+            if not accounts_with_pw:
                 login_error = "최소 1개 계정을 입력해야 합니다."
                 step = 'personal_login'
             else:
-                session['accounts'] = accounts
+                # 이메일만 세션 저장, 비밀번호는 즉시 사용
+                session['accounts'] = [email for email, _ in accounts_with_pw]
+                session['accounts_with_pw'] = accounts_with_pw
                 step = 'email_sender'
 
         elif action == 'start':
-            send_status_list = []
             target_email = request.form.get('target_email')
             if not is_valid_email(target_email):
                 login_error = "대상 이메일 형식 오류"
                 step = 'email_sender'
                 return render_template_string(html, step=step, status=status, send_status_list=send_status_list, login_error=login_error, recent_target=recent_target)
+
             if not is_running:
                 is_running = True
-                for email,password in session['accounts']:
-                    threading.Thread(target=send_email_loop, args=(target_email,email,password)).start()
+                accounts_with_pw = session.get('accounts_with_pw', [])
+                threading.Thread(target=send_email_loop, args=(target_email, accounts_with_pw)).start()
             status = "전개중"
             step = 'email_sender'
 
@@ -196,6 +200,7 @@ def index():
 
         elif action == 'logout':
             session.pop('accounts', None)
+            session.pop('accounts_with_pw', None)
             session.pop('mode', None)
             is_running = False
             send_status_list = []
